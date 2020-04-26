@@ -1,0 +1,300 @@
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<head>
+    <style>
+
+        .names {
+            fill: none;
+            stroke: #fff;
+            stroke-linejoin: round;
+        }
+
+        /* Tooltip CSS */
+        .d3-tip {
+            line-height: 1.5;
+            font-weight: 400;
+
+            font-family: "avenir next", Arial, sans-serif;
+            padding: 6px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #FFA500;
+            border-radius: 1px;
+            pointer-events: none;
+        }
+
+        /* Creates a small triangle extender for the tooltip */
+        .d3-tip:after {
+            box-sizing: border-box;
+            display: inline;
+            font-size: 8px;
+            width: 100%;
+            line-height: 1.5;
+            color: rgba(0, 0, 0, 0.6);
+            position: absolute;
+            pointer-events: none;
+
+        }
+
+        /* Northward tooltips */
+        .d3-tip.n:after {
+            content: "\25BC";
+            margin: -1px 0 0 0;
+            top: 100%;
+            left: 0;
+            text-align: center;
+        }
+
+        /* Eastward tooltips */
+        .d3-tip.e:after {
+            content: "\25C0";
+            margin: -4px 0 0 0;
+            top: 50%;
+            left: -8px;
+        }
+
+        /* Southward tooltips */
+        .d3-tip.s:after {
+            content: "\25B2";
+            margin: 0 0 1px 0;
+            top: -8px;
+            left: 0;
+            text-align: center;
+        }
+
+        /* Westward tooltips */
+        .d3-tip.w:after {
+            content: "\25B6";
+            margin: -4px 0 0 -1px;
+            top: 50%;
+            left: 100%;
+        }
+
+        /*    text{
+              pointer-events:none;
+            }*/
+
+        .details {
+            color: white;
+        }
+
+        .background{
+            background-color: black;
+        }
+
+    </style>
+
+    <script src="https://d3js.org/d3.v5.js"></script>
+    <script src="../../lib/d3-tip.js"></script>
+
+</head>
+
+
+<body class="background">
+
+<div class="background">
+    <svg id = "geomap"></svg>
+</div>
+
+<script>
+
+    var margin = {top: 0, right: 0, bottom: 0, left: 0},
+        width = 1960 - margin.left - margin.right,
+        height = 1000 - margin.top - margin.bottom;
+
+    var svg = d3.select("#geomap")   //解释svg元素，参考wiki svg ; or this tomato  example: https://upload.wikimedia.org/wikipedia/commons/e/e7/Tomate.svg
+        .call(d3.zoom()     // 注意需要放在这里，以监测svg元素，可以测试放在g元素的效果。
+            .scaleExtent([1, 20])
+            .on("zoom", zoomHandler))
+        .attr("width", width)
+        .attr("height", height)
+        .append('g')
+        .attr('class', 'map')
+        .style('background-color','#000000');
+
+    var projection = d3.geoMercator()
+        .scale(130)
+        .translate([width / 2, height / 1.5]);
+
+    var path = d3.geoPath().projection(projection);
+
+    var files  =["../../data/world_countries.json","../../data/covid19 - 03-28-2020.csv"];
+    var promises = [];
+    promises.push(d3.json(files[0]));
+    promises.push(d3.csv(files[1]));
+
+    var data_accumulated = {};
+    Promise.all(promises).then(function(values){
+        var world_geo_data = values[0];
+        var covid_data = values[1];
+        renderData(world_geo_data,covid_data);
+    }).catch(err=>console.log(err + 'Error loading or parsing data.'));
+
+    var g_maxConfiremed;
+
+    function renderData(world_geo_data,covid_data){
+        //输出名字不匹配的国家
+        world_geo_data.features.forEach(function(d){
+            var flag = false;
+            covid_data.forEach(function(dd){
+                if(d.propertiesname == dd.Country_Region){
+                    flag = true;
+                }
+            });
+            if(flag == false)
+                console.log(d.properties.name);
+        })
+
+        //修改不匹配的国家名称
+        world_geo_data.features.forEach(function(d){
+            switch(d.properties.name){
+                case "England":
+                    d.properties.name = "United Kingdom";
+                    break;
+                case "USA":
+                    d.properties.name = "US";
+                    break;
+            }
+        });
+
+        //数据统计
+        covid_data.forEach(function(d){
+            if(data_accumulated[d.Country_Region] == null)
+                data_accumulated[d.Country_Region] = +d.Confirmed;
+            else 
+                data_accumulated[d.Country_Region] = data_accumulated[d.Country_Region] + (+d.Confirmed);
+        });
+        var maxConfirmed = -1;
+        for(var k in data_accumulated){
+            if(data_accumulated[k] > maxConfirmed)
+                maxConfirmed = data_accumulated[k];
+        }
+
+        //数据填入地图
+        world_geo_data.features.forEach(function(d){
+            d.data_num = data_accumulated[d.properties.name];
+        });
+
+            //颜色选择
+        var colorSegment = 9;
+        var dataSegment = [];
+        for(var i = 0;i <= colorSegment - 1;i++){
+            dataSegment.push(maxConfirmed/(colorSegment-1)*i);
+        }
+        var color = d3.scaleLinear()
+            .domain(dataSegment)
+            .range(d3.schemeOranges['9'])
+            .interpolate(d3.interpolateHcl);
+
+        var gg = svg.append("g")
+            .attr("class","countries")
+            .selectAll("path")
+            .data(world_geo_data.features)
+            .enter()
+            .append("path")
+            .attr("d",path)
+            .style("fill",function(d){
+                return "#333333";
+            })
+            .style('stroke','white')
+            .style('stroke-width',1.5)
+            .style("opacity",0.8)
+            .style("stroke","white")
+            .style('stroke-width',0.2)
+        
+        var maxConfirmed = d3.max(covid_data,function(d){return +d.Confirmed});
+        g_maxConfiremed = maxConfirmed;
+
+        var data_pos = [];
+        covid_data.forEach(function(d){
+            var coordinates = projection([d.Long_, d.Lat]);
+            data_pos.push(coordinates);
+        });
+
+        svg.append("g")
+            .selectAll('circle')
+            .data(covid_data)
+            .enter()
+            .append('circle')
+            .attr("class","circle")
+            .attr('cx',function(d,i){
+                return data_pos[i][0];
+            })
+            .attr('cy',function(d,i){
+                return data_pos[i][1];
+            })
+            .attr('r',function(d){
+                var radius = 5300.0 * (+d.Confirmed) / maxConfirmed;
+                if(radius < 1)
+                    return 0.7;
+                return Math.log(radius);
+            })
+            .attr("id","confirmedCircle")
+            .style('fill',"#e60000")
+            .style("opacity",0.75)
+            .on('mouseover',function(d){
+                tip.show(d);
+                d3.select(this)
+                    .style("stroke","white")
+                    .style("stroke-width",1);
+            })
+            .on('mouseout',function(d){
+                tip.hide(d);
+                d3.select(this)
+                    .style("stroke-width",0);
+            })
+    }
+
+    function zoomHandler() {
+        var transform = d3.event.transform;
+
+        d3.selectAll("#confirmedCircle").attr("r",function(d){
+            var radius = 5300.0 * (+d.Confirmed) / g_maxConfiremed;
+            radius = radius / Math.sqrt(transform.k);
+            if(radius < 1)
+                return 1/Math.sqrt(transform.k);
+            return Math.log(radius);
+        })
+
+        svg.attr("transform", "translate("
+            + transform.x + "," + transform.y
+            + ")scale(" + transform.k + ")");
+    }
+
+
+    var format = d3.format(",");
+
+    // Set tooltips
+    var tip = d3.tip()
+        .attr('class', 'd3-tip')
+        .offset([-10, 0])
+        .html(function (d) {
+            if (d.Country_Region == "Taiwan*") {
+                d.Country_Region = "Taiwan, China";
+                d.Province_State = "";
+                //特别注意：地图一定要正确: )
+            }
+            var province = "";
+            if(d.Province_State != ""){
+                province = d.Province_State + ", "
+            }
+            return "<strong>Country/Region: </strong><span class='details'>" + d.properties.name + "<br></span>" + "<strong>Confirmed: </strong><span class='details'>" + format(d.Confirmed) + "</span>";
+        });
+
+
+    svg.call(tip);
+
+
+</script>
+
+
+</body>
+</html>
+
+
+<!--
+Place library script such as the jQuery library in the head section.
+Place normal script in the head unless it becomes a performance/page load issue.
+Place script that impacts the render of the page at the end of the body (before the body closure).
+-->
